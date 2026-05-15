@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TIR vs Duración — Análisis de Outliers (ONs)</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+<style>
+  :root{--bg:#0f1117;--card:#1a1d27;--border:#2a2d3a;--text:#e0e0e0;--muted:#888;--accent:#4fc3f7;
+    --gray:#78909c;--red-light:#ff8a80;--red-dark:#c62828;--green-light:#69f0ae;--green-dark:#2e7d32}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;padding:20px}
+  h1{text-align:center;font-size:1.6rem;margin-bottom:4px;color:var(--accent)}
+  .subtitle{text-align:center;color:var(--muted);font-size:.85rem;margin-bottom:18px}
+  .container{max-width:1200px;margin:0 auto}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px}
+  .card h2{font-size:1.05rem;margin-bottom:10px;color:var(--accent)}
+  textarea{width:100%;height:180px;background:#12141c;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:'Cascadia Code','Fira Code',monospace;font-size:.82rem;resize:vertical;tab-size:20}
+  textarea:focus{outline:none;border-color:var(--accent)}
+  .btn-row{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;align-items:center}
+  button{padding:9px 22px;border:none;border-radius:6px;font-size:.9rem;cursor:pointer;font-weight:600;transition:.2s}
+  .btn-primary{background:var(--accent);color:#000}
+  .btn-primary:hover{background:#29b6f6}
+  .btn-secondary{background:#2a2d3a;color:var(--text)}
+  .btn-secondary:hover{background:#3a3d4a}
+  .btn-share{background:#7c4dff;color:#fff}
+  .btn-share:hover{background:#651fff}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:16px}
+  .stat-box{background:#12141c;border:1px solid var(--border);border-radius:8px;padding:12px 16px;text-align:center}
+  .stat-box .label{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .stat-box .value{font-size:1.1rem;font-weight:700;margin-top:2px;color:var(--text)}
+  .chart-wrap{position:relative;width:100%;height:520px}
+  canvas{width:100%!important;height:100%!important}
+  .convention{font-size:.78rem;color:var(--muted);text-align:center;margin-top:8px;font-style:italic}
+  .legend-row{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;margin-top:10px;margin-bottom:4px}
+  .legend-item{display:flex;align-items:center;gap:5px;font-size:.78rem;color:var(--muted)}
+  .legend-dot{width:12px;height:12px;border-radius:50%;display:inline-block}
+  .controls-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:8px}
+  .toggle-label{font-size:.82rem;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:5px}
+  .toggle-label input{accent-color:var(--accent);width:15px;height:15px}
+  table{width:100%;border-collapse:collapse;font-size:.82rem}
+  thead th{background:#12141c;color:var(--accent);padding:8px 10px;text-align:left;position:sticky;top:0;border-bottom:2px solid var(--border);cursor:pointer;user-select:none;z-index:1}
+  thead th:hover{color:#fff}
+  tbody td{padding:7px 10px;border-bottom:1px solid var(--border)}
+  .table-scroll{max-height:420px;overflow-y:auto;border-radius:6px;border:1px solid var(--border)}
+  .cat-badge{padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:700;display:inline-block;white-space:nowrap}
+  .hidden{display:none}
+  .footer{text-align:center;color:var(--muted);font-size:.72rem;margin-top:20px;padding:10px;border-top:1px solid var(--border)}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#388e3c;color:#fff;padding:10px 24px;border-radius:8px;font-size:.88rem;font-weight:600;opacity:0;transition:opacity .3s;pointer-events:none;z-index:999}
+  .toast.show{opacity:1}
+  @media(max-width:600px){textarea{height:140px}.stats{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>📈 TIR vs Duración Modificada — Análisis de Outliers</h1>
+  <p class="subtitle">Obligaciones Negociables · Ajuste cuadrático con detección de outliers</p>
+
+  <div class="card">
+    <h2>📋 Pegar datos (Ticker, Duración Modificada, TIR %)</h2>
+    <textarea id="dataInput" placeholder="Pegar datos separados por TAB, coma o punto y coma.&#10;Ejemplo:&#10;LDCG&#9;1.35&#9;7.66&#10;CP36O&#9;1.41&#9;7.32&#10;..."></textarea>
+    <div class="btn-row">
+      <button class="btn-primary" onclick="analyze()">🔍 Analizar</button>
+      <button class="btn-secondary" onclick="loadSample()">📥 Cargar ejemplo</button>
+      <button class="btn-secondary" onclick="clearAll()">🗑️ Limpiar</button>
+      <button class="btn-share" onclick="shareLink()">🔗 Compartir</button>
+      <span id="status" style="color:var(--muted);font-size:.8rem;margin-left:auto"></span>
+    </div>
+  </div>
+
+  <div id="results" class="hidden">
+    <div class="stats" id="statsGrid"></div>
+
+    <div class="card">
+      <div class="controls-row">
+        <h2 style="margin-bottom:0">📊 Gráfico TIR vs Duración Modificada</h2>
+        <label class="toggle-label"><input type="checkbox" id="toggleLabels" checked onchange="toggleTickerLabels()"> Mostrar tickers</label>
+      </div>
+      <div class="legend-row">
+        <span class="legend-item"><span class="legend-dot" style="background:#c62828"></span>Outlier negativo (muy)</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#ff8a80"></span>Outlier negativo (leve)</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#78909c"></span>Normal</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#69f0ae"></span>Outlier positivo (leve)</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#2e7d32"></span>Outlier positivo (muy)</span>
+      </div>
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+      <p class="convention">Convención: <b style="color:#ff8a80">▲ Arriba de la curva = peor</b> (outlier negativo, rojo) · <b style="color:#69f0ae">▼ Debajo de la curva = mejor</b> (outlier positivo, verde)</p>
+    </div>
+
+    <div class="card">
+      <h2>📄 Tabla de resultados</h2>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th onclick="sortTable(0)">Ticker ↕</th>
+              <th onclick="sortTable(1)">Duración ↕</th>
+              <th onclick="sortTable(2)">TIR (%) ↕</th>
+              <th onclick="sortTable(3)">TIR Esperada ↕</th>
+              <th onclick="sortTable(4)">Residual ↕</th>
+              <th onclick="sortTable(5)">Categoría ↕</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Archivo autocontenido — compartí el link o enviá el <b>.html</b> por mail · rendimientos.co/#ons
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+Chart.register(ChartDataLabels);
+let chartInstance=null,tableData=[],sortCol=-1,sortAsc=true;
+
+const CAT_COLORS={
+  'Outlier negativo (muy)':{point:'#c62828',border:'#e53935',rowBg:'rgba(198,40,40,0.22)',badgeBg:'rgba(198,40,40,0.3)',badgeText:'#ff8a80',label:'#ff8a80'},
+  'Outlier negativo (leve)':{point:'#ff8a80',border:'#ff5252',rowBg:'rgba(255,138,128,0.15)',badgeBg:'rgba(255,138,128,0.25)',badgeText:'#ff8a80',label:'#ffab91'},
+  'Normal':{point:'#78909c',border:'#90a4ae',rowBg:'transparent',badgeBg:'rgba(120,144,156,0.15)',badgeText:'#90a4ae',label:'#90a4ae'},
+  'Outlier positivo (leve)':{point:'#69f0ae',border:'#00e676',rowBg:'rgba(105,240,174,0.15)',badgeBg:'rgba(105,240,174,0.25)',badgeText:'#69f0ae',label:'#69f0ae'},
+  'Outlier positivo (muy)':{point:'#2e7d32',border:'#388e3c',rowBg:'rgba(27,94,32,0.28)',badgeBg:'rgba(46,125,50,0.35)',badgeText:'#81c784',label:'#81c784'}
+};
+
+const SAMPLE=`LDCG\t1.35\t7.66
+CP36O\t1.41\t7.32
+CP37\t0.84\t7.12
+MGCR\t7.73\t6.92
+YM34\t5.3\t6.72
+TSC4\t6.83\t6.69
+VSCT\t6.38\t6.65
+MGCO\t6.37\t6.51
+BACH\t4\t6.41
+GN49\t5.19\t6.37
+GN47\t2.33\t6.23
+YMCX\t4\t6.22
+CS50\t2.59\t6.07
+TTC\t3.8\t5.89
+IRCO\t3.1\t5.89
+PN36\t4.56\t5.79
+OLC6\t2.76\t5.79
+CS47\t2.31\t5.78
+BACG\t2.79\t5.71
+PN35\t3.09\t5.43
+YM40\t2.14\t5.42
+ARC1\t2.83\t5.29
+YMCY\t2.28\t5.26
+FO4A\t1.18\t4.98
+IRCN\t1.43\t4.81
+MGCN\t2.3\t4.76
+PLC1\t1.68\t4.72
+BYCH\t2.28\t4.66
+HBC\t0.56\t4.65
+YMCZ\t2.29\t4.57
+CS44\t0.71\t4.56
+VSCP\t2.05\t4.37
+HJCF\t0.48\t4.32
+VBC1\t0.85\t4.21
+BF40\t1.29\t4.2
+LOC5\t1.19\t4.18
+TTCB\t1.43\t3.77
+HBCA\t0.32\t3.73
+YM38\t1.19\t3.7
+AERB\t0.62\t3.6
+YM37\t0.98\t3.59
+VSCW\t0.94\t3.47
+TTC8\t1.45\t3.37
+LMS7\t1.28\t3.33
+CS51\t0.72\t3.12
+AFCI\t0.52\t2.37
+RC2C\t0.44\t1.24
+T662\t0.34\t0.03
+BYCW\t0.57\t0.03
+VSCO\t0.84\t-0.08
+BYCV\t0.34\t-1.58
+BF37\t0.32\t-2.51
+LMS8\t0.52\t-4.5
+IRCL\t0.12\t-4.97`;
+
+function showToast(msg,ms){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),ms||2500)}
+
+function shareLink(){
+  const raw=document.getElementById('dataInput').value;
+  if(!raw.trim()){showToast('⚠ Pegá datos primero');return}
+  try{
+    const encoded=btoa(unescape(encodeURIComponent(raw)));
+    const url=window.location.origin+window.location.pathname+'#data='+encoded;
+    navigator.clipboard.writeText(url).then(()=>{
+      showToast('✅ Link copiado al portapapeles');
+    }).catch(()=>{
+      prompt('Copiá este link para compartir:',url);
+    });
+    history.replaceState(null,'','#data='+encoded);
+  }catch(e){showToast('⚠ Error al generar link')}
+}
+
+function loadFromHash(){
+  const hash=window.location.hash;
+  if(hash.startsWith('#data=')){
+    try{
+      const encoded=hash.substring(6);
+      const decoded=decodeURIComponent(escape(atob(encoded)));
+      document.getElementById('dataInput').value=decoded;
+      analyze();
+    }catch(e){}
+  }
+}
+
+function loadSample(){document.getElementById('dataInput').value=SAMPLE;analyze()}
+
+function clearAll(){
+  document.getElementById('dataInput').value='';
+  document.getElementById('results').classList.add('hidden');
+  if(chartInstance){chartInstance.destroy();chartInstance=null}
+  document.getElementById('status').textContent='';
+  history.replaceState(null,'',window.location.pathname);
+}
+
+function parseData(raw){
+  const lines=raw.trim().split(/\r?\n/).filter(l=>l.trim());
+  const data=[];
+  for(const line of lines){
+    if(/ticker/i.test(line)&&/dur/i.test(line))continue;
+    let parts;
+    if(line.includes('\t'))parts=line.split('\t');
+    else if(line.includes(';'))parts=line.split(';');
+    else parts=line.split(',');
+    parts=parts.map(p=>p.trim()).filter(p=>p);
+    if(parts.length<3)continue;
+    const ticker=parts[0];
+    const dur=parseFloat(parts[1].replace(',','.'));
+    const tir=parseFloat(parts[2].replace(',','.'));
+    if(!isNaN(dur)&&!isNaN(tir))data.push({ticker,dur,tir});
+  }
+  return data;
+}
+
+function quadFit(xs,ys){
+  const n=xs.length;
+  let sx=0,sx2=0,sx3=0,sx4=0,sy=0,sxy=0,sx2y=0;
+  for(let i=0;i<n;i++){
+    const x=xs[i],y=ys[i],x2=x*x;
+    sx+=x;sx2+=x2;sx3+=x2*x;sx4+=x2*x2;
+    sy+=y;sxy+=x*y;sx2y+=x2*y;
+  }
+  const M=[[n,sx,sx2],[sx,sx2,sx3],[sx2,sx3,sx4]];
+  const R=[sy,sxy,sx2y];
+  for(let col=0;col<3;col++){
+    let maxR=Math.abs(M[col][col]),maxI=col;
+    for(let row=col+1;row<3;row++)if(Math.abs(M[row][col])>maxR){maxR=Math.abs(M[row][col]);maxI=row}
+    [M[col],M[maxI]]=[M[maxI],M[col]];[R[col],R[maxI]]=[R[maxI],R[col]];
+    for(let row=col+1;row<3;row++){
+      const f=M[row][col]/M[col][col];
+      for(let j=col;j<3;j++)M[row][j]-=f*M[col][j];
+      R[row]-=f*R[col];
+    }
+  }
+  const coef=[0,0,0];
+  for(let i=2;i>=0;i--){
+    let s=R[i];
+    for(let j=i+1;j<3;j++)s-=M[i][j]*coef[j];
+    coef[i]=s/M[i][i];
+  }
+  return {c:coef[0],b:coef[1],a:coef[2]};
+}
+
+let showLabels=true;
+function toggleTickerLabels(){
+  showLabels=document.getElementById('toggleLabels').checked;
+  if(chartInstance){
+    chartInstance.options.plugins.datalabels.display=function(ctx){
+      if(ctx.datasetIndex===0)return false;
+      return showLabels;
+    };
+    chartInstance.update();
+  }
+}
+
+function analyze(){
+  const raw=document.getElementById('dataInput').value;
+  if(!raw.trim()){document.getElementById('status').textContent='⚠ Pegá datos primero';return}
+  const data=parseData(raw);
+  if(data.length<3){document.getElementById('status').textContent='⚠ Se necesitan al menos 3 puntos';return}
+
+  const xs=data.map(d=>d.dur),ys=data.map(d=>d.tir);
+  const fit=quadFit(xs,ys);
+
+  const residuals=[];
+  let ssRes=0,ssTot=0;
+  const yMean=ys.reduce((a,b)=>a+b,0)/ys.length;
+  for(let i=0;i<data.length;i++){
+    const yHat=fit.a*data[i].dur**2+fit.b*data[i].dur+fit.c;
+    const res=data[i].tir-yHat;
+    data[i].yHat=yHat;data[i].residual=res;
+    residuals.push(res);
+    ssRes+=res*res;ssTot+=(data[i].tir-yMean)**2;
+  }
+  const r2=1-ssRes/ssTot;
+  const stdDev=Math.sqrt(residuals.reduce((s,r)=>s+r*r,0)/(residuals.length-1));
+  const thLeve=1.5*stdDev,thMuy=2*thLeve;
+
+  const maxAbsRes=Math.max(...residuals.map(Math.abs));
+  for(const d of data){
+    if(d.residual>thMuy)d.cat='Outlier negativo (muy)';
+    else if(d.residual>thLeve)d.cat='Outlier negativo (leve)';
+    else if(d.residual<-thMuy)d.cat='Outlier positivo (muy)';
+    else if(d.residual<-thLeve)d.cat='Outlier positivo (leve)';
+    else d.cat='Normal';
+  }
+
+  data.sort((a,b)=>b.residual-a.residual);
+  tableData=[...data];
+
+  const eqStr=`${fit.c>=0?'':'-'}${Math.abs(fit.c).toFixed(4)} ${fit.b>=0?'+ ':'- '}${Math.abs(fit.b).toFixed(4)}·D ${fit.a>=0?'+ ':'- '}${Math.abs(fit.a).toFixed(4)}·D²`;
+  document.getElementById('statsGrid').innerHTML=`
+    <div class="stat-box"><div class="label">Ecuación (TIR %)</div><div class="value" style="font-size:.88rem">${eqStr}</div></div>
+    <div class="stat-box"><div class="label">R²</div><div class="value">${r2.toFixed(4)}</div></div>
+    <div class="stat-box"><div class="label">Umbral leve (pp)</div><div class="value" style="color:#ff8a80">${thLeve.toFixed(3)}</div></div>
+    <div class="stat-box"><div class="label">Umbral muy (pp)</div><div class="value" style="color:#c62828">${thMuy.toFixed(3)}</div></div>
+    <div class="stat-box"><div class="label">Instrumentos</div><div class="value">${data.length}</div></div>
+    <div class="stat-box"><div class="label">σ residuales</div><div class="value">${stdDev.toFixed(4)}</div></div>`;
+
+  // Curve
+  const xMin=Math.min(...xs)-0.2,xMax=Math.max(...xs)+0.2;
+  const curveX=[],curveY=[];
+  for(let x=xMin;x<=xMax;x+=(xMax-xMin)/200){curveX.push(x);curveY.push(fit.a*x*x+fit.b*x+fit.c)}
+
+  if(chartInstance)chartInstance.destroy();
+  showLabels=document.getElementById('toggleLabels').checked;
+  const ctx=document.getElementById('chart').getContext('2d');
+  chartInstance=new Chart(ctx,{
+    type:'scatter',
+    data:{
+      datasets:[
+        {
+          label:'Curva ajustada',
+          data:curveX.map((x,i)=>({x,y:curveY[i]})),
+          type:'line',
+          borderColor:'rgba(79,195,247,0.7)',
+          borderWidth:2.5,
+          pointRadius:0,
+          fill:false,
+          tension:0.4,
+          order:2,
+          datalabels:{display:false}
+        },
+        {
+          label:'ONs',
+          data:data.map(d=>({x:d.dur,y:d.tir,ticker:d.ticker,residual:d.residual,cat:d.cat})),
+          backgroundColor:data.map(d=>CAT_COLORS[d.cat].point),
+          borderColor:data.map(d=>CAT_COLORS[d.cat].border),
+          borderWidth:1.5,
+          pointRadius:data.map(d=>{
+            if(d.cat==='Normal')return 5;
+            const t=Math.min(Math.abs(d.residual)/Math.max(maxAbsRes,0.01),1);
+            return 6+5*t;
+          }),
+          pointHoverRadius:11,
+          order:1
+        }
+      ]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        datalabels:{
+          display:function(ctx){
+            if(ctx.datasetIndex===0)return false;
+            return showLabels;
+          },
+          formatter:function(value){return value.ticker||''},
+          anchor:'end',
+          align:'top',
+          offset:3,
+          font:{size:9,weight:'bold'},
+          color:function(ctx){
+            if(ctx.datasetIndex===0)return 'transparent';
+            const d=ctx.dataset.data[ctx.dataIndex];
+            return CAT_COLORS[d.cat]?CAT_COLORS[d.cat].label:'#999';
+          },
+          textShadowColor:'rgba(0,0,0,0.7)',
+          textShadowBlur:3
+        },
+        tooltip:{
+          backgroundColor:'rgba(20,22,30,0.95)',
+          titleColor:'#4fc3f7',
+          bodyColor:'#e0e0e0',
+          borderColor:'#2a2d3a',
+          borderWidth:1,
+          callbacks:{
+            title(items){const p=items[0].raw;return p.ticker||''},
+            label(item){
+              const p=item.raw;
+              if(p.ticker===undefined)return `TIR: ${p.y.toFixed(2)}%`;
+              return [`Duración: ${p.x.toFixed(2)}`,`TIR: ${p.y.toFixed(2)}%`,`Residual: ${p.residual>=0?'+':''}${p.residual.toFixed(3)} pp`,`Categoría: ${p.cat}`];
+            }
+          }
+        }
+      },
+      scales:{
+        x:{title:{display:true,text:'Duración Modificada',color:'#aaa',font:{size:13}},grid:{color:'rgba(255,255,255,0.06)'},ticks:{color:'#999'}},
+        y:{title:{display:true,text:'TIR (%)',color:'#aaa',font:{size:13}},grid:{color:'rgba(255,255,255,0.06)'},ticks:{color:'#999'}}
+      }
+    }
+  });
+
+  renderTable(data);
+  document.getElementById('results').classList.remove('hidden');
+  document.getElementById('status').textContent=`✅ ${data.length} instrumentos analizados`;
+}
+
+function renderTable(data){
+  const tbody=document.getElementById('tableBody');
+  tbody.innerHTML=data.map(d=>{
+    const cc=CAT_COLORS[d.cat];
+    const resColor=d.cat==='Normal'?'var(--muted)':cc.badgeText;
+    const resSign=d.residual>=0?'+':'';
+    return `<tr style="background:${cc.rowBg}">
+      <td${d.cat!=='Normal'?' style="font-weight:700"':''}>${d.ticker}</td>
+      <td>${d.dur.toFixed(2)}</td>
+      <td>${d.tir.toFixed(2)}</td>
+      <td>${d.yHat.toFixed(3)}</td>
+      <td style="font-weight:700;color:${resColor}">${resSign}${d.residual.toFixed(3)}</td>
+      <td><span class="cat-badge" style="background:${cc.badgeBg};color:${cc.badgeText}">${d.cat}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function sortTable(col){
+  if(sortCol===col)sortAsc=!sortAsc;else{sortCol=col;sortAsc=true}
+  const keys=['ticker','dur','tir','yHat','residual','cat'];
+  const key=keys[col];
+  tableData.sort((a,b)=>{
+    let va=a[key],vb=b[key];
+    if(typeof va==='string')return sortAsc?va.localeCompare(vb):vb.localeCompare(va);
+    return sortAsc?va-vb:vb-va;
+  });
+  renderTable(tableData);
+}
+
+// Auto-load from URL hash on page load
+window.addEventListener('DOMContentLoaded',loadFromHash);
+</script>
+</body>
+</html>
